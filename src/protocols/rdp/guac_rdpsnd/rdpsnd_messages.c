@@ -19,13 +19,18 @@
 
 #include "config.h"
 
+#include "audio_input.h"
+#include "memory.h"
 #include "rdp.h"
 #include "rdpsnd_messages.h"
 #include "rdpsnd_service.h"
 
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdlib.h>
 
+#include <freerdp/freerdp.h>
+#include <freerdp/constants.h>
 #include <freerdp/utils/svc_plugin.h>
 #include <guacamole/audio.h>
 #include <guacamole/client.h>
@@ -328,4 +333,185 @@ void guac_rdpsnd_close_handler(guac_rdpsndPlugin* rdpsnd,
     /* Do nothing */
 
 }
+
+static void guac_rdpsnd_flush_packet(char* buffer, int length, void* data) {
+
+    guac_rdpsndPlugin* rdpsnd = (guac_rdpsndPlugin*) data;
+    guac_client* client = rdpsnd->client;
+    guac_rdp_client* rdp_client = (guac_rdp_client*) client->data;
+
+    wStream* output_stream = Stream_New(NULL, 4 + length);
+    Stream_Write_UINT16(output_stream, RDPSND_REC_DATA);
+    Stream_Write_UINT16(output_stream, length);
+    Stream_Write(output_stream, buffer, length);
+
+    pthread_mutex_lock(&(rdp_client->rdp_lock));
+    svc_plugin_send((rdpSvcPlugin*) rdpsnd, output_stream);
+    pthread_mutex_unlock(&(rdp_client->rdp_lock));
+}
+
+void guac_rdpsnd_rec_negotiate_handler(guac_rdpsndPlugin* rdpsnd,
+                               wStream* input_stream, guac_rdpsnd_pdu_header* header) {
+
+    guac_client* client = rdpsnd->client;
+
+    guac_rdp_client* rdp_client = (guac_rdp_client*) client->data;
+
+
+    /* Get audio stream from client data */
+    guac_rdp_audio_buffer* audio_buffer = rdp_client->audio_input;
+
+    wStream*       out;
+    UINT16        numFormats;
+    rdpsndFormat* rec_formats;
+    rdpsndFormat* format;
+    int           pos;
+    int           i;
+
+    Stream_Seek_UINT32(input_stream); /* unused */
+    Stream_Seek_UINT32(input_stream); /* unused */
+    Stream_Read_UINT16(input_stream, numFormats);
+    Stream_Seek_UINT16(input_stream); /* this is `UINT16 wVersion;` but we don't really need it */
+
+    rec_formats = (rdpsndFormat *) xzalloc(numFormats * sizeof(rdpsndFormat));
+
+    for (i = 0; i < numFormats; i++) {
+        format = &rec_formats[i];
+        Stream_Read_UINT16(input_stream, format->wFormatTag);
+        Stream_Read_UINT16(input_stream, format->nChannels);
+        Stream_Read_UINT32(input_stream, format->nSamplesPerSec);
+        Stream_Read_UINT32(input_stream, format->nAvgBytesPerSec);
+        Stream_Read_UINT16(input_stream, format->nBlockAlign);
+        Stream_Read_UINT16(input_stream, format->wBitsPerSample);
+        Stream_Read_UINT16(input_stream, format->cbSize);
+
+        if (format->cbSize > 0) {
+            format->data = xmalloc(format->cbSize);
+            Stream_Read(input_stream, format->data, format->cbSize);
+        }
+    }
+
+    if (numFormats > 0 && audio_buffer != NULL) {
+        format = &rec_formats[0];
+        /* Set output format of internal audio buffer to match RDP server */
+        guac_rdp_audio_buffer_set_output(audio_buffer, format->nSamplesPerSec,
+                                         format->nChannels, format->wBitsPerSample / 8);
+    }
+
+    if (numFormats == 0) {
+        xfree(rec_formats);
+    }
+
+    /*
+     * let server know we support the same recording formats
+     */
+
+    out = Stream_New(NULL, 16 + (18 * numFormats));
+
+    Stream_Write_UINT8(out, RDPSND_REC_NEGOTIATE);
+    Stream_Write_UINT8(out, 1);
+    Stream_Write_UINT16(out, 0); /* write real bytes to follow later */
+
+    Stream_Write_UINT32(out, 0); /* flags - unused */
+    Stream_Write_UINT32(out, 0); /* volume - unused */
+    Stream_Write_UINT16(out, numFormats);
+    Stream_Write_UINT16(out, 1); /* version */
+
+    for (i = 0; i < numFormats; i++) {
+        format = &rec_formats[i];
+        Stream_Write_UINT16(out, format->wFormatTag);
+        Stream_Write_UINT16(out, format->nChannels);
+        Stream_Write_UINT32(out, format->nSamplesPerSec);
+        Stream_Write_UINT32(out, format->nAvgBytesPerSec);
+        Stream_Write_UINT16(out, format->nBlockAlign);
+        Stream_Write_UINT16(out, format->wBitsPerSample);
+        Stream_Write_UINT16(out, 0); /* cbSize not used */
+    }
+
+    pos = Stream_GetPosition(out);
+    Stream_SetPosition(out, 2);
+    Stream_Write_UINT16(out, pos - 4); /* real bytes to follow */
+    Stream_SetPosition(out, pos);
+
+    pthread_mutex_lock(&(rdp_client->rdp_lock));
+    svc_plugin_send((rdpSvcPlugin*) rdpsnd, out);
+    pthread_mutex_unlock(&(rdp_client->rdp_lock));
+
+    /*
+     * Note: we do not really need the recording formats later because we don't control what the
+     * guacamole client sends to us. Hence, we don't keep this data in memory.
+     */
+}
+
+void guac_rdpsnd_rec_start_handler(guac_rdpsndPlugin* rdpsnd,
+                               wStream* input_stream, guac_rdpsnd_pdu_header* header) {
+
+
+    /* Get associated client data */
+    guac_client* client = rdpsnd->client;
+    guac_rdp_client* rdp_client = (guac_rdp_client*) client->data;
+
+    pthread_mutex_lock(&(rdp_client->rdp_lock));
+
+    if (rdpsnd->rec_device_opened) {
+        pthread_mutex_unlock(&(rdp_client->rdp_lock));
+        return;
+    }
+
+    /* Get audio stream from client data */
+    guac_rdp_audio_buffer* audio_buffer = rdp_client->audio_input;
+
+    Stream_Seek_UINT16(input_stream); /* this is `int formatIndex;` but we don't really need it. */
+
+    if (audio_buffer != NULL) {
+
+        if (&(audio_buffer->out_format) != NULL) {
+            guac_client_log(client, GUAC_LOG_INFO,
+                            "guac_rdpsnd_rec_start_handler: %i-channels, %i-bps",
+                            audio_buffer->out_format.channels, audio_buffer->out_format.bps);
+        } else {
+            guac_client_log(client, GUAC_LOG_INFO,
+                            "guac_rdpsnd_rec_start_handler: audio_buffer->out_format is null");
+        }
+
+        // allocate a large enough buffer to hold the audio channel stream from each packet.
+        int packet_frames = 32768;
+
+        guac_rdp_audio_buffer_begin(audio_buffer, packet_frames,
+                                    guac_rdpsnd_flush_packet, rdpsnd);
+    }
+
+    rdpsnd->rec_device_opened = true;
+
+    pthread_mutex_unlock(&(rdp_client->rdp_lock));
+}
+
+void guac_rdpsnd_rec_stop_handler(guac_rdpsndPlugin* rdpsnd,
+                               wStream* input_stream, guac_rdpsnd_pdu_header* header) {
+
+    guac_client* client = rdpsnd->client;
+    guac_rdp_client* rdp_client = (guac_rdp_client*) client->data;
+
+    pthread_mutex_lock(&(rdp_client->rdp_lock));
+
+    if (!rdpsnd->rec_device_opened) {
+        pthread_mutex_unlock(&(rdp_client->rdp_lock));
+        return;
+    }
+
+    /* Get audio stream from client data */
+    guac_rdp_audio_buffer* audio_buffer = rdp_client->audio_input;
+
+    if (audio_buffer != NULL) {
+        guac_rdp_audio_buffer_end(audio_buffer);
+    }
+
+    rdpsnd->rec_device_opened = false;
+
+    guac_client_log(client, GUAC_LOG_INFO, "guac_rdpsnd_rec_stop_handler");
+
+    pthread_mutex_unlock(&(rdp_client->rdp_lock));
+}
+
+
 

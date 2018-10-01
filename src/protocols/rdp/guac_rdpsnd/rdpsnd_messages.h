@@ -100,6 +100,31 @@
 #define WAVE_FORMAT_PCM  1
 
 /**
+ * Xrdp server sends this to negotiate recording format
+ */
+#define RDPSND_REC_NEGOTIATE	39
+
+/**
+ * Xrdp server sends this to signal to start sending the recording stream
+ */
+#define RDPSND_REC_START	40
+
+/**
+ * Xrdp server sends this to signal to stop sending the recording stream
+ */
+#define RDPSND_REC_STOP		41
+
+/**
+ * We send this to the Xrdp server as a prefix to the recording data
+ */
+#define RDPSND_REC_DATA		42
+
+/**
+ * Xrdp server sends this to set the recording volume on the client.
+ */
+#define RDPSND_REC_SET_VOLUME	43
+
+/**
  * The header common to all RDPSND PDUs.
  */
 typedef struct guac_rdpsnd_pdu_header {
@@ -115,6 +140,22 @@ typedef struct guac_rdpsnd_pdu_header {
     int body_size;
 
 } guac_rdpsnd_pdu_header;
+
+/**
+ * The recording format details that are negotiated with the Xrdp server.
+ */
+typedef struct rdpsnd_format rdpsndFormat;
+struct rdpsnd_format
+{
+    UINT16 wFormatTag;
+    UINT16 nChannels;
+    UINT32 nSamplesPerSec;
+    UINT32 nAvgBytesPerSec;
+    UINT16 nBlockAlign;
+    UINT16 wBitsPerSample;
+    UINT16 cbSize;
+    UINT8* data;
+};
 
 /**
  * Handler for the SNDC_FORMATS (Server Audio Formats and Version) PDU. The
@@ -216,6 +257,66 @@ void guac_rdpsnd_wave_handler(guac_rdpsndPlugin* rdpsnd,
  *     the same header information.
  */
 void guac_rdpsnd_close_handler(guac_rdpsndPlugin* rdpsnd,
+        wStream* input_stream, guac_rdpsnd_pdu_header* header);
+
+/**
+ * Handler for the RDPSND_REC_NEGOTIATE PDU. This PDU is sent by XRDP to negotiate
+ * a stream for recording from the client.
+ *
+ * This is not part of the RDP protocol and is a custom extension by XRDP.
+ *
+ * @param rdpsnd
+ *     The Guacamole RDPSND plugin receiving the RDPSND_REC_NEGOTIATE PDU.
+ *
+ * @param input_stream
+ *     The FreeRDP input stream containing the remaining raw bytes (after the
+ *     common header) of the RDPSND_REC_NEGOTIATE PDU.
+ *
+ * @param header
+ *     The header content of the RDPSND_REC_NEGOTIATE PDU. All RDPSND messages contain
+ *     the same header information.
+ */
+void guac_rdpsnd_rec_negotiate_handler(guac_rdpsndPlugin* rdpsnd,
+        wStream* input_stream, guac_rdpsnd_pdu_header* header);
+
+/**
+ * Handler for the RDPSND_REC_START PDU. This PDU is sent by XRDP to start sending the
+ * recording stream from the client.
+ *
+ * This is not part of the RDP protocol and is a custom extension by XRDP.
+ *
+ * @param rdpsnd
+ *     The Guacamole RDPSND plugin receiving the RDPSND_REC_START PDU.
+ *
+ * @param input_stream
+ *     The FreeRDP input stream containing the remaining raw bytes (after the
+ *     common header) of the RDPSND_REC_START PDU.
+ *
+ * @param header
+ *     The header content of the RDPSND_REC_START PDU. All RDPSND messages contain
+ *     the same header information.
+ */
+void guac_rdpsnd_rec_start_handler(guac_rdpsndPlugin* rdpsnd,
+        wStream* input_stream, guac_rdpsnd_pdu_header* header);
+
+/**
+ * Handler for the RDPSND_REC_STOP PDU. This PDU is sent by XRDP to stop sending the
+ * recording stream from the client.
+ *
+ * This is not part of the RDP protocol and is a custom extension by XRDP.
+ *
+ * @param rdpsnd
+ *     The Guacamole RDPSND plugin receiving the RDPSND_REC_STOP PDU.
+ *
+ * @param input_stream
+ *     The FreeRDP input stream containing the remaining raw bytes (after the
+ *     common header) of the RDPSND_REC_STOP PDU.
+ *
+ * @param header
+ *     The header content of the RDPSND_REC_STOP PDU. All RDPSND messages contain
+ *     the same header information.
+ */
+void guac_rdpsnd_rec_stop_handler(guac_rdpsndPlugin* rdpsnd,
         wStream* input_stream, guac_rdpsnd_pdu_header* header);
 
 #endif

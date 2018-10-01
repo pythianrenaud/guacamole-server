@@ -23,6 +23,7 @@
 
 #include "config.h"
 
+#include <stdbool.h>
 #include <freerdp/utils/svc_plugin.h>
 #include <guacamole/client.h>
 
@@ -92,6 +93,11 @@ typedef struct guac_rdpsndPlugin {
      * have headers, and are indicated by the receipt of a WaveInfo PDU.
      */
     int next_pdu_is_wave;
+
+    /**
+     * Whether the recording input device is already open.
+     */
+    bool rec_device_opened;
 
     /**
      * The wave data received within the last SNDC_WAVE (WaveInfo) PDU.

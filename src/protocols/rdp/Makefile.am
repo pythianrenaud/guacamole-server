@@ -64,6 +64,8 @@ guacsvc_sources =          \
     rdp_svc.c
 
 guacsnd_sources =                 \
+    memory.c                      \
+    audio_input.c                 \
     guac_rdpsnd/rdpsnd_messages.c \
     guac_rdpsnd/rdpsnd_service.c
 
@@ -104,6 +106,7 @@ noinst_HEADERS =                             \
     error.h                                  \
     input.h                                  \
     keyboard.h                               \
+    memory.h                                 \
     ptr_string.h                             \
     rdp.h                                    \
     rdp_bitmap.h                             \

@@ -138,6 +138,22 @@ void guac_rdpsnd_process_receive(rdpSvcPlugin* plugin,
             guac_rdpsnd_close_handler(rdpsnd, input_stream, &header);
             break;
 
+        /* Negotiate the recording stream */
+        case RDPSND_REC_NEGOTIATE:
+            guac_rdpsnd_rec_negotiate_handler(rdpsnd, input_stream, &header);
+            break;
+
+        /* Tell the guac client to start the recording stream */
+        case RDPSND_REC_START:
+            guac_rdpsnd_rec_start_handler(rdpsnd, input_stream, &header);
+            break;
+
+        /* Tell the guac client to stop the recording stream */
+        case RDPSND_REC_STOP:
+            guac_rdpsnd_rec_stop_handler(rdpsnd, input_stream, &header);
+            break;
+
+        /* RDPSND_REC_SET_VOLUME is not currently supported */
     }
 
 }
