@@ -475,7 +475,7 @@ void guac_rdpsnd_rec_start_handler(guac_rdpsndPlugin* rdpsnd,
         }
 
         // allocate a large enough buffer to hold the audio channel stream from each packet.
-        int packet_frames = 32768;
+        int packet_frames = 8192;
 
         guac_rdp_audio_buffer_begin(audio_buffer, packet_frames,
                                     guac_rdpsnd_flush_packet, rdpsnd);
