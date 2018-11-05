@@ -1,0 +1,70 @@
+version: '3.4'
+
+services:
+  guacmysql:
+    container_name: running-guacmysql
+    hostname: guacmysql
+    build:
+      context: guacmysql
+      args:
+        GUAC_REPO: ${GUAC_REPO}
+        GUAC_MYSQL_VERSION: ${GUAC_MYSQL_VERSION}
+    restart: always
+    volumes:
+      - guacdata:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+
+  guacd:
+    container_name: running-guacd
+    hostname: guacd
+    build: .
+    user: root
+    restart: always
+
+  guacamole:
+    container_name: running-guacamole
+    depends_on:
+      - guacd
+      - guacmysql
+    image: guacamole/guacamole:${GUAC_VERSION}
+    restart: always
+    ports:
+      - 8080:8080
+    environment:
+      GUACD_HOSTNAME: guacd
+      MYSQL_HOSTNAME: guacmysql
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+
+  linuxworkspace:
+    container_name: running-linuxworkspace
+    hostname: linuxworkspace
+    build:
+      context: linuxworkspace
+    user: root
+    ports:
+    - 3389:3389
+    - "2222:22"
+    restart: always
+    shm_size: '1gb'
+
+#  guactools:
+#    container_name: running-guactools
+#    hostname: guactools
+#    build:
+#      context: guactools
+#      args:
+#        GUAC_VERSION: ${GUAC_VERSION}
+#    user: root
+#    restart: always
+#    volumes:
+#      - ${LOCAL_RECORDING_DIR}:/recordings
+
+volumes:
+  guacdata:
+    name: guacdata
